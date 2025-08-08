@@ -12,10 +12,10 @@ import toast from "react-hot-toast";
 
 const NewMachine = () => {
   const SCRIPT_URL =
-    "https://script.google.com/macros/s/AKfycbyh7M7DroVDTtqVFYm0NbkIvN_QBAZOydgsvAxVZJRP8Lj76yZp2MW_P_vW0_LbrxPTaA/exec";
+    "https://script.google.com/macros/s/AKfycbzWDU77ND7kYIIf__m_v3hlFv74-lF68mgSMjb0OadKnNU4XJFr74zAqnDQG0FARtjd/exec";
   const SHEET_NAME = "FormResponses";
-  const SHEET_Id = "1VLbt33JSLW2M9Sq5sLSJD9hlAqDRzrOVP2SMcsj4K9U";
-  const FOLDER_ID = "15mG_EUeAbJ5xxoYLRR1pMDXcpoCmTQSR";
+  const SHEET_Id = "1lE5TdGcbmwVcVqbx-jftPIdmoGgg1DApNn4t9jZvGN8";
+  const FOLDER_ID = "1IUX8rnhuodWWPQ2PPAFurz-S1Xoz-9h5";
 
   const [formValues, setFormValues] = useState({
     serialNumber: "",

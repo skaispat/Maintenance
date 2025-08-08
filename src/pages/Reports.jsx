@@ -104,8 +104,8 @@ const Reports = () => {
   const monthlyMaintenanceCosts = getMonthlyMaintenanceCosts();
 
   const SCRIPT_URL =
-    "https://script.google.com/macros/s/AKfycbyh7M7DroVDTtqVFYm0NbkIvN_QBAZOydgsvAxVZJRP8Lj76yZp2MW_P_vW0_LbrxPTaA/exec";
-  const SHEET_Id = "1VLbt33JSLW2M9Sq5sLSJD9hlAqDRzrOVP2SMcsj4K9U";
+    "https://script.google.com/macros/s/AKfycbzWDU77ND7kYIIf__m_v3hlFv74-lF68mgSMjb0OadKnNU4XJFr74zAqnDQG0FARtjd/exec";
+  const SHEET_Id = "1lE5TdGcbmwVcVqbx-jftPIdmoGgg1DApNn4t9jZvGN8";
 
   const fetchMaintenceTasks = async () => {
     setLoadingTasks(true);
