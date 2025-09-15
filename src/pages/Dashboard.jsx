@@ -976,16 +976,18 @@ const totalCost = totalMaintenanceCost; // Only maintenance cost to match the ca
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow p-6 flex items-start">
-          <div className="p-3 rounded-full bg-purple-100 mr-4">
-            <DollarSign size={24} className="text-purple-600" />
-          </div>
-          <div>
-            <p className="text-sm text-gray-500 font-medium">Total Cost</p>
-            <h3 className="text-2xl font-bold text-gray-800">₹{totalCost.toLocaleString()}</h3>
-           
-          </div>
-        </div>
+    <div className="bg-white rounded-xl shadow p-6 flex items-start w-full max-w-full">
+  <div className="p-3 rounded-full bg-purple-100 mr-4 flex-shrink-0">
+    <DollarSign size={24} className="text-purple-600" />
+  </div>
+  <div className="flex-1 min-w-0">
+    <p className="text-sm text-gray-500 font-medium">Total Cost</p>
+    <h3 className="font-bold text-gray-800 text-[clamp(1rem,5vw,2rem)] leading-snug">
+      ₹{totalCost.toLocaleString()}
+    </h3>
+  </div>
+</div>
+
       </div>
 
      
