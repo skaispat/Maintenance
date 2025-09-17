@@ -1,3 +1,12 @@
+
+
+
+
+
+
+
+
+
 // import React, { useEffect, useState } from "react";
 // import {
 //   BarChart,
@@ -44,6 +53,7 @@
 //   const [repairTasks, setRepairTasks] = useState([]);
 //   const [totalMaintenanceTasksCompleted, setTotalMaintenanceTasksCompleted] =
 //     useState(0);
+//     // const [visibleMachines, setVisibleMachines] = useState([]);
 //   const [totalMaintenanceTasksOverdue, setTotalMaintenanceTasksOverdue] =
 //     useState(0);
 //   const [totalRepairTasksCompleted, setTotalRepairTasksCompleted] = useState(0);
@@ -66,6 +76,7 @@
 //         `${SCRIPT_URL}?sheetId=${SHEET_Id}&sheet=${SHEET_NAME}`
 //       );
 //       const result = await res.json();
+//       console.log("result", result);
 
 //       // console.log("data", result);
 
@@ -192,6 +203,39 @@
 //     });
 //   };
 
+//   // नया state बनाओ (Machines count maintenance sheet से)
+// const [visibleMachines, setVisibleMachines] = useState([]);
+
+// const getUniqueMachines = (data) => {
+//   const unique = new Set(
+//     data
+//       .map((row) => row["Machine Name"]?.toString().trim().toLowerCase())
+//       .filter(Boolean) // empty/null हटाओ
+//   );
+//   return [...unique];
+// };
+
+// // जब भी user या maintenanceTasks बदले → filter करो
+// useEffect(() => {
+//   if (!user || !maintenanceTasks.length) return;
+
+//   if (user.role === "admin") {
+//     const uniqueAll = getUniqueMachines(maintenanceTasks);
+//     console.log("✅ Admin - Unique machines:", uniqueAll);
+//     setVisibleMachines(uniqueAll);
+//   } else {
+//     const currentUserName = user?.name?.trim().toLowerCase();
+//     const filtered = maintenanceTasks.filter(
+//       (row) =>
+//         row["Doer Name"]?.toString().trim().toLowerCase() === currentUserName
+//     );
+//     const uniqueUser = getUniqueMachines(filtered);
+//     console.log("👤 User:", currentUserName, "→ Unique machines:", uniqueUser);
+//     setVisibleMachines(uniqueUser);
+//   }
+// }, [user, maintenanceTasks]);
+
+
 // const getMaintenanceCostData = () => {
 //   const maintenanceCostsByMachine = {};
   
@@ -224,23 +268,9 @@
 //   // console.log("repairVsPurchaseData", repairVsPurchaseData);
 
 //   // First, create a map to accumulate costs by department
-//  // Replace the existing departmentCostMap section with this:
 // const departmentCostMap = {};
 
-// // Process repair tasks - add null checks
-// repairCompletedTasks.forEach((task) => {
-//   const department = task.Department;
-//   const cost = parseFloat(task["Repair Cost"]) || 0;
-
-//   if (department && department !== "") {
-//     if (!departmentCostMap[department]) {
-//       departmentCostMap[department] = 0;
-//     }
-//     departmentCostMap[department] += cost;
-//   }
-// });
-
-// // Process maintenance tasks - add null checks  
+// // Process ONLY maintenance tasks (to match the cards)
 // maintenanceCompletedTasks.forEach((task) => {
 //   const department = task.Department;
 //   const cost = parseFloat(task["Maintenace Cost"]) || 0;
@@ -287,16 +317,12 @@
 //   repairs: frequencyCounts[frequency],
 // }));
 
-//   // Calculate total cost from Maintenance Cost column (AD)
-//  // Replace the existing total cost calculations with this:
+//   // Calculate total cost from Maintenance Cost column (AD) - only maintenance to match cards
 // const totalMaintenanceCost = maintenanceCompletedTasks.reduce((sum, task) => {
 //   return sum + (parseFloat(task["Maintenace Cost"]) || 0);
 // }, 0);
 
-// const totalRepairCost = repairCompletedTasks.reduce((sum, task) => {
-//   return sum + (parseFloat(task["Repair Cost"]) || 0);
-// }, 0);
-//   const totalCost = totalMaintenanceCost + totalRepairCost;
+// const totalCost = totalMaintenanceCost; // Only maintenance cost to match the cards
 
 //   return (
 //     <div className="space-y-6">
@@ -313,9 +339,10 @@
 //           </div>
 //           <div>
 //             <p className="text-sm text-gray-500 font-medium">Total Machines</p>
-//             <h3 className="text-2xl font-bold text-gray-800">
-//               {sheetDate?.length}
-//             </h3>
+//            <h3 className="text-2xl font-bold text-gray-800">
+//   {visibleMachines?.length || 0}
+// </h3>
+
 //             {/* <p className="text-xs text-green-600 flex items-center mt-1">
 //               <ArrowUpCircle size={14} className="mr-1" />
 //               <span>+12 this month</span>
@@ -395,16 +422,18 @@
 //           </div>
 //         </div>
 
-//         <div className="bg-white rounded-xl shadow p-6 flex items-start">
-//           <div className="p-3 rounded-full bg-purple-100 mr-4">
-//             <DollarSign size={24} className="text-purple-600" />
-//           </div>
-//           <div>
-//             <p className="text-sm text-gray-500 font-medium">Total Cost</p>
-//             <h3 className="text-2xl font-bold text-gray-800">₹{totalCost.toLocaleString()}</h3>
-           
-//           </div>
-//         </div>
+//     <div className="bg-white rounded-xl shadow p-6 flex items-start w-full max-w-full">
+//   <div className="p-3 rounded-full bg-purple-100 mr-4 flex-shrink-0">
+//     <DollarSign size={24} className="text-purple-600" />
+//   </div>
+//   <div className="flex-1 min-w-0">
+//     <p className="text-sm text-gray-500 font-medium">Total Cost</p>
+//     <h3 className="font-bold text-gray-800 text-[clamp(1rem,5vw,2rem)] leading-snug">
+//       ₹{totalCost.toLocaleString()}
+//     </h3>
+//   </div>
+// </div>
+
 //       </div>
 
      
@@ -584,11 +613,6 @@
 // };
 
 // export default Dashboard;
-
-
-
-
-
 
 
 

@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import axios from "axios";
-
+import useAuthStore from "../store/authStore";
 const mockTask = {
   id: 3,
   machineId: 2,
@@ -141,6 +141,7 @@ const mockTask = {
 };
 
 const TaskDetails = () => {
+   const { user } = useAuthStore(); 
   const { taskNo, serialNo, taskType } = useParams();
   const [allRelatedTasks, setAllRelatedTasks] = useState([]);
   const [machineName, setMachineName] = useState("");
@@ -178,61 +179,204 @@ const TaskDetails = () => {
         ? "Maitenance Task Assign"
         : "Repair Task Assign";
 
-      const res = await axios.get(
-        `${SCRIPT_URL}?sheetId=${SHEET_ID}&sheet=${encodeURIComponent(
-          sheetName
-        )}`
-      );
+      // Use same URL format as Tasks.js with filtering parameters
+      const baseParams = new URLSearchParams({
+        sheetId: SHEET_ID,
+        page: "1",
+        pageSize: "1000",
+        search: "",
+        department: "all",
+        status: "all", 
+        location: "all",
+        userRole: user?.role || "",
+        username: user?.username || ""
+      });
 
-      const columns = res.data.table.cols.map((col) => col.label);
-      const rows = res.data.table.rows;
+      const apiUrl = `${SCRIPT_URL}?${baseParams}&sheet=${encodeURIComponent(sheetName)}`;
+      
+      console.log("🔗 TaskDetails API URL:", apiUrl);
+
+      const res = await axios.get(apiUrl);
+
+      console.log("📡 TaskDetails API Response:", res.data);
+
+      // Check if response has valid structure
+      if (!res.data.success || !res.data.table || !res.data.table.cols) {
+        console.error("❌ Invalid API response structure:", res.data);
+        
+        // Fallback: try old format without pagination
+        const fallbackUrl = `${SCRIPT_URL}?sheetId=${SHEET_ID}&sheet=${encodeURIComponent(sheetName)}`;
+        console.log("🔄 Trying fallback URL:", fallbackUrl);
+        
+        const fallbackRes = await axios.get(fallbackUrl);
+        console.log("📡 Fallback API Response:", fallbackRes.data);
+        
+        if (!fallbackRes.data.table || !fallbackRes.data.table.cols) {
+          console.error("❌ Fallback also failed");
+          setAllRelatedTasks([]);
+          setCompletedTasks([]);
+          setPendingTasks([]);
+          return;
+        }
+        
+        // Use fallback response
+        res.data = fallbackRes.data;
+      }
+
+      const columns = res.data.table.cols.map((col) => col?.label || "");
+      const rows = res.data.table.rows || [];
+
+      console.log(`📋 Found ${columns.length} columns and ${rows.length} rows`);
 
       const formattedData = rows.map((row) => {
         const obj = {};
-        row.c.forEach((cell, i) => {
-          obj[columns[i]] = cell?.v || "";
-        });
+        if (row && row.c) {
+          row.c.forEach((cell, i) => {
+            if (columns[i]) {
+              obj[columns[i]] = cell?.v || "";
+            }
+          });
+        }
         return obj;
-      });
+      }).filter(obj => Object.keys(obj).length > 0);
 
-      // console.log("formattedData", formattedData);
+      console.log(`📊 Formatted ${formattedData.length} records`);
+      console.log("Looking for serialNo:", serialNo);
+      console.log("Looking for taskNo:", taskNo);
 
-      // Filter pending tasks by both Serial No and Machine Name for uniqueness
-      const pendingTaskss = formattedData.filter(
-        (item) => item["Actual Date"] === "" && item["Serial No"] === serialNo
+      // Frontend filtering for additional security
+      let userFilteredData = formattedData;
+      
+      console.log(`👤 User role: ${user?.role}, Username: ${user?.username}`);
+      
+      if (user?.role === 'user') {
+        // Regular user को सिर्फ उसके assigned tasks दिखाएं
+        userFilteredData = formattedData.filter(task => 
+          task["Doer Name"]?.toLowerCase() === user.username?.toLowerCase()
+        );
+        console.log(`🔒 User filtering: ${formattedData.length} → ${userFilteredData.length} records`);
+      } else if (user?.role === 'admin') {
+        // Admin को सभी tasks दिखाएं (no filtering)
+        userFilteredData = formattedData;
+        console.log(`🔓 Admin access: showing all ${formattedData.length} records`);
+      } else {
+        // Unknown role - show all by default
+        console.log(`⚠️ Unknown role: ${user?.role}, showing all records`);
+        userFilteredData = formattedData;
+      }
+
+      // First find the specific task we're looking at
+      const currentTask = userFilteredData.find(
+        (row) => row["Serial No"] === serialNo || row["Task No"] === taskNo
       );
 
-      setPendingTasks(pendingTaskss);
+      console.log("Current task found:", currentTask);
 
-      const currentRow = formattedData.find(
-        (row) => row["Serial No"] === serialNo
-      );
-
-      if (!currentRow) {
-        console.warn("No matching row found for serialNo:", serialNo);
+      if (!currentTask) {
+        console.warn("⚠️ No matching task found for serialNo:", serialNo, "or taskNo:", taskNo);
         setAllRelatedTasks([]);
         setCompletedTasks([]);
+        setPendingTasks([]);
         return;
       }
 
-      const currentMachineName = currentRow["Machine Name"];
-      const currentSerialNo = currentRow["Serial No"];
+      const currentMachineName = currentTask["Machine Name"];
+      const currentSerialNo = currentTask["Serial No"];
       setMachineName(currentMachineName);
 
-      // Filter tasks by both Machine Name and Serial No for uniqueness
-      const relatedTasks = formattedData.filter(
-        (row) => row["Machine Name"] === currentMachineName && row["Serial No"] === currentSerialNo
-      );
-      // console.log("currentMachineName", currentMachineName);
-      // console.log("currentSerialNo", currentSerialNo);
-      // console.log("relatedTasks", relatedTasks);
+      console.log("Machine Name:", currentMachineName);
+      console.log("Serial No:", currentSerialNo);
 
-      // Active tasks (empty Actual Date)
+      // Debug: Check all machine names in the data
+      console.log("🔍 All Machine Names in data:", 
+        [...new Set(userFilteredData.map(row => `"${row["Machine Name"]}"`))]
+      );
+      
+      // Debug: Check all Serial Numbers in the data  
+      console.log("🔍 All Serial Numbers in data:",
+        [...new Set(userFilteredData.map(row => `"${row["Serial No"]}"`))]
+      );
+
+      // Filter tasks by Machine Name pattern matching
+      // "Conveyor Rolls" के सभी variants ढूंढने के लिए
+      const machineBaseName = currentMachineName?.trim().toLowerCase();
+      
+      console.log("🔍 Current base machine type:", machineBaseName);
+
+      // Check if current machine contains keywords
+      const isConveyorMachine = machineBaseName.includes("conveyor");
+      const isRollsMachine = machineBaseName.includes("rolls");
+      const isCraneMachine = machineBaseName.includes("crane");
+      const isPumpMachine = machineBaseName.includes("pump");
+      const isStandMachine = machineBaseName.includes("stand");
+
+      // Filter tasks by keyword matching
+      let relatedTasks;
+      
+      if (user?.role === 'admin') {
+        // Admin को सभी machines के tasks दिखाएं
+        relatedTasks = userFilteredData;
+        console.log(`🔓 Admin: showing all tasks from all machines: ${relatedTasks.length}`);
+      } else {
+        // User को सिर्फ related machine type के tasks दिखाएं
+        relatedTasks = userFilteredData.filter((row) => {
+          const rowMachineName = row["Machine Name"]?.trim().toLowerCase() || "";
+          
+          // Exact match first
+          if (rowMachineName === machineBaseName) {
+            return true;
+          }
+          
+          // Keyword-based matching for similar machine types
+          if (isConveyorMachine && rowMachineName.includes("conveyor")) {
+            return true; // All "conveyor" machines together
+          }
+          
+          if (isRollsMachine && rowMachineName.includes("rolls")) {
+            return true; // All "rolls" machines together
+          }
+          
+          if (isCraneMachine && rowMachineName.includes("crane")) {
+            return true; // All "crane" machines together
+          }
+          
+          if (isPumpMachine && rowMachineName.includes("pump")) {
+            return true; // All "pump" machines together  
+          }
+          
+          if (isStandMachine && rowMachineName.includes("stand")) {
+            return true; // All "stand" machines together
+          }
+          
+          return false;
+        });
+        console.log(`👤 User: showing related machine tasks: ${relatedTasks.length}`);
+      }
+
+      console.log(`🔍 All tasks for machine type with similar keywords: ${relatedTasks.length}`);
+      
+      // Show all machine names that matched
+      const matchedMachineNames = [...new Set(relatedTasks.map(task => task["Machine Name"]))];
+      console.log("🔍 Matched machine names:", matchedMachineNames);
+      
+      // Show all serial numbers for matched machines
+      const machineSerialNumbers = [...new Set(relatedTasks.map(task => task["Serial No"]))];
+      console.log(`🔍 Serial numbers for these machines: ${machineSerialNumbers.length}`, machineSerialNumbers);
+
+      // Filter pending tasks (for details tab) - same machine के सभी pending tasks
+      const pendingTaskss = relatedTasks.filter(
+        (item) => (!item["Actual Date"] || item["Actual Date"].trim() === "")
+      );
+
+      setPendingTasks(pendingTaskss);
+      console.log(`📋 Pending tasks: ${pendingTaskss.length}`);
+
+      // Active tasks (empty Actual Date) for checklist tab
       const activeTasks = relatedTasks.filter(
         (row) => !row["Actual Date"] || row["Actual Date"].trim() === ""
       );
 
-      // Completed tasks (has Actual Date)
+      // Completed tasks (has Actual Date) for history tab
       const completedTasks = relatedTasks.filter(
         (row) => row["Actual Date"] && row["Actual Date"].trim() !== ""
       );
@@ -240,12 +384,11 @@ const TaskDetails = () => {
       setAllRelatedTasks(activeTasks);
       setCompletedTasks(completedTasks);
 
-      const totalTasks = activeTasks.length + completedTasks.length;
+      console.log(`✅ Active tasks: ${activeTasks.length}`);
+      console.log(`🏁 Completed tasks: ${completedTasks.length}`);
 
-      const precent = Math.floor((completedTasks.length * 100) / totalTasks);
-      // console.log("completedTasks.length", completedTasks.length);
-      // console.log("activeTasks.length", activeTasks.length);
-      // console.log("precent", precent);
+      const totalTasks = activeTasks.length + completedTasks.length;
+      const precent = totalTasks > 0 ? Math.floor((completedTasks.length * 100) / totalTasks) : 0;
       setTaskProgress(precent);
 
       // Initialize states only for active tasks
@@ -264,13 +407,17 @@ const TaskDetails = () => {
       setTaskStatuses(initialTaskStatuses);
       setRemarks(initialRemarks);
       setImageFiles({});
+      
     } catch (error) {
-      console.error("Error fetching tasks:", error);
+      console.error("❌ Error fetching tasks:", error);
+      // Handle error gracefully
+      setAllRelatedTasks([]);
+      setCompletedTasks([]);
+      setPendingTasks([]);
     } finally {
       setLoading(false);
     }
   };
-
   useEffect(() => {
     fetchMachineRelatedTasks();
   }, [taskNo, serialNo]);
@@ -834,61 +981,78 @@ const TaskDetails = () => {
         ) : (
           <div className="p-2">
             {/* Details Tab */}
-            <div style={{ maxHeight: "400px", overflowY: "auto" }}>
-              {activeTab === "details" &&
-                pendingTasks.map((pendingTask, indx) => (
-                  <div
-                    key={indx}
-                    className="bg-white rounded-2xl shadow-md p-6 mb-6 border border-gray-200 hover:shadow-lg transition-shadow duration-300"
-                  >
-                    <div className="flex justify-between">
-                      <h2 className="text-lg font-semibold text-gray-800 mb-2">
-                        Task No{" "}
-                        <span className="text-blue-600">
-                          ({pendingTask["Task No"]})
-                        </span>
-                      </h2>
-
-                      <h2 className="text-lg font-semibold text-gray-800 mb-2">
-                        Task Date{" "}
-                        <span className="text-blue-600">
-                          (
-                          {new Date(
-                            pendingTask["Task Start Date"]
-                          ).toLocaleDateString("en-IN", {
-                            year: "numeric",
-                            month: "long",
-                            day: "numeric",
-                          })}
-                          )
-                        </span>
-                      </h2>
-
-                      <h2 className="text-lg font-semibold text-gray-800 mb-2">
-                        Task Sound Test{" "}
-                        <span className="text-blue-600">
-                          (
-                          {pendingTask["Need Sound Test"] === "Yes"
-                            ? "Yes"
-                            : "No"}
-                          )
-                        </span>
-                      </h2>
-
-                      <h2 className="text-lg font-semibold text-gray-800 mb-2">
-                        Task Temperature{" "}
-                        <span className="text-blue-600">
-                          ({pendingTask["Temperature"] === "Yes" ? "Yes" : "No"}
-                          )
-                        </span>
-                      </h2>
+   {/* Details Tab */}
+            <div className="overflow-x-auto" style={{ maxHeight: "400px", overflowY: "auto" }}>
+              {activeTab === "details" && (
+                <div>
+                  <table className="min-w-full border border-gray-300 text-sm">
+                    <thead className="bg-gray-50 sticky top-0 z-10">
+                      <tr>
+                        <th className="border px-4 py-3 text-left font-medium text-gray-700">
+                          Task No
+                        </th>
+                        <th className="border px-4 py-3 text-left font-medium text-gray-700">
+                          Task Date
+                        </th>
+                        <th className="border px-4 py-3 text-left font-medium text-gray-700">
+                          Description
+                        </th>
+                        <th className="border px-4 py-3 text-left font-medium text-gray-700">
+                          Task Sound Test
+                        </th>
+                        <th className="border px-4 py-3 text-left font-medium text-gray-700">
+                          Task Temperature
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {pendingTasks.map((pendingTask, indx) => (
+                        <tr key={indx} className="hover:bg-gray-50">
+                          <td className="border px-4 py-3 font-medium text-blue-600">
+                            {pendingTask["Task No"]}
+                          </td>
+                          <td className="border px-4 py-3 text-gray-900">
+                            {new Date(pendingTask["Task Start Date"]).toLocaleDateString("en-IN", {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                            })}
+                          </td>
+                          <td className="border px-4 py-3 text-gray-700 max-w-md">
+                            <div className="line-clamp-3 break-words">
+                              {pendingTask["Description"]}
+                            </div>
+                          </td>
+                          <td className="border px-4 py-3 text-center">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              pendingTask["Need Sound Test"] === "Yes" 
+                                ? "bg-green-100 text-green-800" 
+                                : "bg-gray-100 text-gray-800"
+                            }`}>
+                              {pendingTask["Need Sound Test"] === "Yes" ? "Yes" : "No"}
+                            </span>
+                          </td>
+                          <td className="border px-4 py-3 text-center">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              pendingTask["Temperature"] === "Yes" 
+                                ? "bg-blue-100 text-blue-800" 
+                                : "bg-gray-100 text-gray-800"
+                            }`}>
+                              {pendingTask["Temperature"] === "Yes" ? "Yes" : "No"}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  
+                  {pendingTasks.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      No pending tasks found for this machine.
                     </div>
-                    <hr className="my-2 border-t border-gray-300" />
-                    <p className="text-gray-600 leading-relaxed">
-                      {pendingTask["Description"]}
-                    </p>
-                  </div>
-                ))}
+                  )}
+                </div>
+              )}
             </div>
 
             {/* CheckList Tab */}
@@ -908,6 +1072,9 @@ const TaskDetails = () => {
                         </th>
                         <th className="border px-2 py-1 text-blue-700">
                           Department
+                        </th>
+                        <th className="border px-2 py-1 text-blue-700">
+                          Description
                         </th>
                         <th className="border px-2 py-1 text-blue-700">
                           Task Status
@@ -969,6 +1136,11 @@ const TaskDetails = () => {
                             </td>
                             <td className="border px-2 py-1 text-center">
                               {task["Department"]}
+                            </td>
+                            <td className="border px-2 py-1 text-left max-w-xs">
+                              <div className="truncate" title={task["Description"]}>
+                                {task["Description"]}
+                              </div>
                             </td>
 
                             <td className="border px-2 py-1 text-center">
