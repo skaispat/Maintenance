@@ -141,7 +141,7 @@ const mockTask = {
 };
 
 const TaskDetails = () => {
-   const { user } = useAuthStore(); 
+  const { user } = useAuthStore();
   const { taskNo, serialNo, taskType } = useParams();
   const [allRelatedTasks, setAllRelatedTasks] = useState([]);
   const [machineName, setMachineName] = useState("");
@@ -179,88 +179,55 @@ const TaskDetails = () => {
         ? "Maitenance Task Assign"
         : "Repair Task Assign";
 
-      // Use same URL format as Tasks.js with filtering parameters
-      const baseParams = new URLSearchParams({
-        sheetId: SHEET_ID,
-        page: "1",
-        pageSize: "1000",
-        search: "",
-        department: "all",
-        status: "all", 
-        location: "all",
-        userRole: user?.role || "",
-        username: user?.username || ""
-      });
-
-      const apiUrl = `${SCRIPT_URL}?${baseParams}&sheet=${encodeURIComponent(sheetName)}`;
-      
-      console.log("🔗 TaskDetails API URL:", apiUrl);
-
-      const res = await axios.get(apiUrl);
+      // Use the raw data endpoint that returns the new format
+      const rawDataUrl = `${SCRIPT_URL}?action=getRawData&sheetId=${SHEET_ID}&sheet=${encodeURIComponent(sheetName)}`;
+      const res = await axios.get(rawDataUrl);
 
       console.log("📡 TaskDetails API Response:", res.data);
 
-      // Check if response has valid structure
-      if (!res.data.success || !res.data.table || !res.data.table.cols) {
+      // Handle the new response format
+      if (!res.data.success || !res.data.headers || !res.data.rows) {
         console.error("❌ Invalid API response structure:", res.data);
-        
-        // Fallback: try old format without pagination
-        const fallbackUrl = `${SCRIPT_URL}?sheetId=${SHEET_ID}&sheet=${encodeURIComponent(sheetName)}`;
-        console.log("🔄 Trying fallback URL:", fallbackUrl);
-        
-        const fallbackRes = await axios.get(fallbackUrl);
-        console.log("📡 Fallback API Response:", fallbackRes.data);
-        
-        if (!fallbackRes.data.table || !fallbackRes.data.table.cols) {
-          console.error("❌ Fallback also failed");
-          setAllRelatedTasks([]);
-          setCompletedTasks([]);
-          setPendingTasks([]);
-          return;
-        }
-        
-        // Use fallback response
-        res.data = fallbackRes.data;
+        setAllRelatedTasks([]);
+        setCompletedTasks([]);
+        setPendingTasks([]);
+        return;
       }
 
-      const columns = res.data.table.cols.map((col) => col?.label || "");
-      const rows = res.data.table.rows || [];
+      const headers = res.data.headers;
+      const rows = res.data.rows;
 
-      console.log(`📋 Found ${columns.length} columns and ${rows.length} rows`);
+      console.log(`📋 Found ${headers.length} columns and ${rows.length} rows`);
 
+      // Convert rows to objects using headers
       const formattedData = rows.map((row) => {
         const obj = {};
-        if (row && row.c) {
-          row.c.forEach((cell, i) => {
-            if (columns[i]) {
-              obj[columns[i]] = cell?.v || "";
-            }
-          });
-        }
+        headers.forEach((header, index) => {
+          if (header && row[index] !== undefined) {
+            obj[header] = row[index] || "";
+          }
+        });
         return obj;
       }).filter(obj => Object.keys(obj).length > 0);
 
-      console.log(`📊 Formatted ${formattedData.length} records`);
+      console.log(`📊 Formatted`, formattedData);
       console.log("Looking for serialNo:", serialNo);
       console.log("Looking for taskNo:", taskNo);
 
       // Frontend filtering for additional security
       let userFilteredData = formattedData;
-      
+
       console.log(`👤 User role: ${user?.role}, Username: ${user?.username}`);
-      
+
       if (user?.role === 'user') {
-        // Regular user को सिर्फ उसके assigned tasks दिखाएं
-        userFilteredData = formattedData.filter(task => 
+        userFilteredData = formattedData.filter(task =>
           task["Doer Name"]?.toLowerCase() === user.username?.toLowerCase()
         );
         console.log(`🔒 User filtering: ${formattedData.length} → ${userFilteredData.length} records`);
       } else if (user?.role === 'admin') {
-        // Admin को सभी tasks दिखाएं (no filtering)
         userFilteredData = formattedData;
         console.log(`🔓 Admin access: showing all ${formattedData.length} records`);
       } else {
-        // Unknown role - show all by default
         console.log(`⚠️ Unknown role: ${user?.role}, showing all records`);
         userFilteredData = formattedData;
       }
@@ -287,83 +254,22 @@ const TaskDetails = () => {
       console.log("Machine Name:", currentMachineName);
       console.log("Serial No:", currentSerialNo);
 
-      // Debug: Check all machine names in the data
-      console.log("🔍 All Machine Names in data:", 
-        [...new Set(userFilteredData.map(row => `"${row["Machine Name"]}"`))]
-      );
-      
-      // Debug: Check all Serial Numbers in the data  
-      console.log("🔍 All Serial Numbers in data:",
-        [...new Set(userFilteredData.map(row => `"${row["Serial No"]}"`))]
-      );
-
-      // Filter tasks by Machine Name pattern matching
-      // "Conveyor Rolls" के सभी variants ढूंढने के लिए
-      const machineBaseName = currentMachineName?.trim().toLowerCase();
-      
-      console.log("🔍 Current base machine type:", machineBaseName);
-
-      // Check if current machine contains keywords
-      const isConveyorMachine = machineBaseName.includes("conveyor");
-      const isRollsMachine = machineBaseName.includes("rolls");
-      const isCraneMachine = machineBaseName.includes("crane");
-      const isPumpMachine = machineBaseName.includes("pump");
-      const isStandMachine = machineBaseName.includes("stand");
-
-      // Filter tasks by keyword matching
+      // Filter tasks by Machine Name
       let relatedTasks;
-      
-      if (user?.role === 'admin') {
-        // Admin को सभी machines के tasks दिखाएं
-        relatedTasks = userFilteredData;
-        console.log(`🔓 Admin: showing all tasks from all machines: ${relatedTasks.length}`);
-      } else {
-        // User को सिर्फ related machine type के tasks दिखाएं
-        relatedTasks = userFilteredData.filter((row) => {
-          const rowMachineName = row["Machine Name"]?.trim().toLowerCase() || "";
-          
-          // Exact match first
-          if (rowMachineName === machineBaseName) {
-            return true;
-          }
-          
-          // Keyword-based matching for similar machine types
-          if (isConveyorMachine && rowMachineName.includes("conveyor")) {
-            return true; // All "conveyor" machines together
-          }
-          
-          if (isRollsMachine && rowMachineName.includes("rolls")) {
-            return true; // All "rolls" machines together
-          }
-          
-          if (isCraneMachine && rowMachineName.includes("crane")) {
-            return true; // All "crane" machines together
-          }
-          
-          if (isPumpMachine && rowMachineName.includes("pump")) {
-            return true; // All "pump" machines together  
-          }
-          
-          if (isStandMachine && rowMachineName.includes("stand")) {
-            return true; // All "stand" machines together
-          }
-          
-          return false;
-        });
-        console.log(`👤 User: showing related machine tasks: ${relatedTasks.length}`);
-      }
 
-      console.log(`🔍 All tasks for machine type with similar keywords: ${relatedTasks.length}`);
-      
-      // Show all machine names that matched
-      const matchedMachineNames = [...new Set(relatedTasks.map(task => task["Machine Name"]))];
-      console.log("🔍 Matched machine names:", matchedMachineNames);
-      
-      // Show all serial numbers for matched machines
-      const machineSerialNumbers = [...new Set(relatedTasks.map(task => task["Serial No"]))];
-      console.log(`🔍 Serial numbers for these machines: ${machineSerialNumbers.length}`, machineSerialNumbers);
+      console.log(`🔍 Filtering by Machine Name: "${currentMachineName}"`);
 
-      // Filter pending tasks (for details tab) - same machine के सभी pending tasks
+      // Filter by exact machine name match
+      relatedTasks = userFilteredData.filter((row) => {
+        const rowMachineName = row["Machine Name"]?.trim() || "";
+        const currentMachineNameTrimmed = currentMachineName?.trim() || "";
+
+        return rowMachineName.toLowerCase() === currentMachineNameTrimmed.toLowerCase();
+      });
+
+      console.log(`🔍 Found ${relatedTasks.length} tasks for machine: "${currentMachineName}"`);
+
+      // Filter pending tasks (for details tab)
       const pendingTaskss = relatedTasks.filter(
         (item) => (!item["Actual Date"] || item["Actual Date"].trim() === "")
       );
@@ -407,10 +313,9 @@ const TaskDetails = () => {
       setTaskStatuses(initialTaskStatuses);
       setRemarks(initialRemarks);
       setImageFiles({});
-      
+
     } catch (error) {
       console.error("❌ Error fetching tasks:", error);
-      // Handle error gracefully
       setAllRelatedTasks([]);
       setCompletedTasks([]);
       setPendingTasks([]);
@@ -600,41 +505,41 @@ const TaskDetails = () => {
       const payload =
         taskType === "Maintence"
           ? {
-              sheetId: SHEET_ID,
-              sheetName: taskNo.startsWith("TM")
-                ? "Maitenance Task Assign"
-                : "Repair Task Assign",
-              action: "update",
-              taskNo: taskNo,
-              "Task Status": taskStatuses[taskNo],
-              Remarks: remarks[taskNo] || "",
-              "Maintenace Cost": repairCosts[taskNo] || "",
-              "Sound Status": soundStatuses[taskNo] || "",
-              "Temperature Status": temperatures[taskNo] || "",
-              ...(imgRes && {
-                "Image Link": imgRes,
-                "File Name": fileName,
-                "File Type": fileType,
-              }),
-            }
+            sheetId: SHEET_ID,
+            sheetName: taskNo.startsWith("TM")
+              ? "Maitenance Task Assign"
+              : "Repair Task Assign",
+            action: "update",
+            taskNo: taskNo,
+            "Task Status": taskStatuses[taskNo],
+            Remarks: remarks[taskNo] || "",
+            "Maintenace Cost": repairCosts[taskNo] || "",
+            "Sound Status": soundStatuses[taskNo] || "",
+            "Temperature Status": temperatures[taskNo] || "",
+            ...(imgRes && {
+              "Image Link": imgRes,
+              "File Name": fileName,
+              "File Type": fileType,
+            }),
+          }
           : {
-              sheetId: SHEET_ID,
-              sheetName: taskNo.startsWith("TM")
-                ? "Maitenance Task Assign"
-                : "Repair Task Assign",
-              action: "update",
-              taskNo: taskNo,
-              "Task Status": taskStatuses[taskNo],
-              Remarks: remarks[taskNo] || "",
-              "Repair Cost": repairCosts[taskNo] || "",
-              "Sound Status": soundStatuses[taskNo] || "",
-              "Temperature Status": temperatures[taskNo] || "",
-              ...(imgRes && {
-                "Image Link": imgRes,
-                "File Name": fileName,
-                "File Type": fileType,
-              }),
-            };
+            sheetId: SHEET_ID,
+            sheetName: taskNo.startsWith("TM")
+              ? "Maitenance Task Assign"
+              : "Repair Task Assign",
+            action: "update",
+            taskNo: taskNo,
+            "Task Status": taskStatuses[taskNo],
+            Remarks: remarks[taskNo] || "",
+            "Repair Cost": repairCosts[taskNo] || "",
+            "Sound Status": soundStatuses[taskNo] || "",
+            "Temperature Status": temperatures[taskNo] || "",
+            ...(imgRes && {
+              "Image Link": imgRes,
+              "File Name": fileName,
+              "File Type": fileType,
+            }),
+          };
 
       // Only add Actual Date if status is "Yes"
       if (taskStatuses[taskNo] === "Yes") {
@@ -654,13 +559,13 @@ const TaskDetails = () => {
         toast.success("Task updated successfully");
 
         // if (taskStatuses[taskNo] === "Yes") {
-          // If task is marked as completed, remove it from active tasks
-          // setAllRelatedTasks((prev) =>
-          //   prev.filter((t) => t["Task No"] !== taskNo)
-          // );
-          // setPendingTasks((prev) =>
-          //   prev.filter((t) => t["Task No"] !== taskNo)
-          // );
+        // If task is marked as completed, remove it from active tasks
+        // setAllRelatedTasks((prev) =>
+        //   prev.filter((t) => t["Task No"] !== taskNo)
+        // );
+        // setPendingTasks((prev) =>
+        //   prev.filter((t) => t["Task No"] !== taskNo)
+        // );
         // }
         fetchMachineRelatedTasks();
 
@@ -813,6 +718,30 @@ const TaskDetails = () => {
 
   const completedItems = checklist.filter((item) => item.completed).length;
 
+
+  const handleSelectAll = (isChecked) => {
+  const today = new Date();
+
+  const todaysTasks = allRelatedTasks.filter((task) => {
+    const taskDate = new Date(task["Task Start Date"]);
+    return (
+      taskDate.getDate() === today.getDate() &&
+      taskDate.getMonth() === today.getMonth() &&
+      taskDate.getFullYear() === today.getFullYear()
+    );
+  });
+
+  const updated = {};
+  todaysTasks.forEach((task) => {
+    if (!task["Actual Date"]) {   // ✅ already done tasks skip ho
+      updated[task["Task No"]] = isChecked;
+    }
+  });
+
+  setCheckedItems((prev) => ({ ...prev, ...updated }));
+};
+
+
   return (
     <div className="space-y-6">
       <div className="flex items-center mb-6">
@@ -913,63 +842,110 @@ const TaskDetails = () => {
                   style={{ width: `${completionPercentage}%` }}
                 ></div>
               </div>
-              <div className="text-xs text-gray-500 mt-1 text-right">
-                {completionPercentage}% Complete
-              </div>
-            </div>
+            
           </div> */}
 
           {/* Task Progress Section */}
         </div>
 
-        <div className="border-b border-gray-200">
+        {/* <div className="border-b border-gray-200">
           <nav className="flex -mb-px">
             <button
-              className={`py-4 px-6 font-medium text-sm border-b-2 ${
-                activeTab === "details"
+              className={`py-4 px-6 font-medium text-sm border-b-2 ${activeTab === "details"
                   ? "border-indigo-500 text-indigo-600"
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}
+                }`}
               onClick={() => setActiveTab("details")}
             >
               <FileText size={16} className="inline mr-2" />
               Description
             </button>
             <button
-              className={`py-4 px-6 font-medium text-sm border-b-2 ${
-                activeTab === "checklist"
+              className={`py-4 px-6 font-medium text-sm border-b-2 ${activeTab === "checklist"
                   ? "border-indigo-500 text-indigo-600"
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}
+                }`}
               onClick={() => setActiveTab("checklist")}
             >
               <CheckCircle size={16} className="inline mr-2" />
               Checklist
             </button>
             <button
-              className={`py-4 px-6 font-medium text-sm border-b-2 ${
-                activeTab === "history"
+              className={`py-4 px-6 font-medium text-sm border-b-2 ${activeTab === "history"
                   ? "border-indigo-500 text-indigo-600"
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}
+                }`}
               onClick={() => setActiveTab("history")}
             >
               <Clock size={16} className="inline mr-2" />
               History
             </button>
             <button
-              className={`py-4 px-6 font-medium text-sm border-b-2 ${
-                activeTab === "documents"
+              className={`py-4 px-6 font-medium text-sm border-b-2 ${activeTab === "documents"
                   ? "border-indigo-500 text-indigo-600"
                   : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}
+                }`}
               onClick={() => setActiveTab("documents")}
             >
               <Paperclip size={16} className="inline mr-2" />
               Documents
             </button>
           </nav>
+        </div> */}
+
+
+        <div className="border-b border-gray-200">
+          <nav className="flex flex-wrap sm:flex-nowrap -mb-px overflow-x-auto">
+            {/* Description */}
+            <button
+              className={`flex items-center py-3 px-4 sm:py-4 sm:px-6 font-medium text-sm border-b-2 whitespace-nowrap ${activeTab === "details"
+                  ? "border-indigo-500 text-indigo-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
+              onClick={() => setActiveTab("details")}
+            >
+              <FileText size={16} className="mr-2" />
+              Description
+            </button>
+
+            {/* Checklist */}
+            <button
+              className={`flex items-center py-3 px-4 sm:py-4 sm:px-6 font-medium text-sm border-b-2 whitespace-nowrap ${activeTab === "checklist"
+                  ? "border-indigo-500 text-indigo-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
+              onClick={() => setActiveTab("checklist")}
+            >
+              <CheckCircle size={16} className="mr-2" />
+              Checklist
+            </button>
+
+            {/* History */}
+            <button
+              className={`flex items-center py-3 px-4 sm:py-4 sm:px-6 font-medium text-sm border-b-2 whitespace-nowrap ${activeTab === "history"
+                  ? "border-indigo-500 text-indigo-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
+              onClick={() => setActiveTab("history")}
+            >
+              <Clock size={16} className="mr-2" />
+              History
+            </button>
+
+            {/* Documents */}
+            <button
+              className={`flex items-center py-3 px-4 sm:py-4 sm:px-6 font-medium text-sm border-b-2 whitespace-nowrap ${activeTab === "documents"
+                  ? "border-indigo-500 text-indigo-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
+              onClick={() => setActiveTab("documents")}
+            >
+              <Paperclip size={16} className="mr-2" />
+              Documents
+            </button>
+          </nav>
         </div>
+
 
         {/* Bellow section */}
 
@@ -981,7 +957,7 @@ const TaskDetails = () => {
         ) : (
           <div className="p-2">
             {/* Details Tab */}
-   {/* Details Tab */}
+            {/* Details Tab */}
             <div className="overflow-x-auto" style={{ maxHeight: "400px", overflowY: "auto" }}>
               {activeTab === "details" && (
                 <div>
@@ -1006,51 +982,71 @@ const TaskDetails = () => {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {pendingTasks.map((pendingTask, indx) => (
-                        <tr key={indx} className="hover:bg-gray-50">
-                          <td className="border px-4 py-3 font-medium text-blue-600">
-                            {pendingTask["Task No"]}
-                          </td>
-                          <td className="border px-4 py-3 text-gray-900">
-                            {new Date(pendingTask["Task Start Date"]).toLocaleDateString("en-IN", {
-                              year: "numeric",
-                              month: "short",
-                              day: "numeric",
-                            })}
-                          </td>
-                          <td className="border px-4 py-3 text-gray-700 max-w-md">
-                            <div className="line-clamp-3 break-words">
-                              {pendingTask["Description"]}
-                            </div>
-                          </td>
-                          <td className="border px-4 py-3 text-center">
-                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                              pendingTask["Need Sound Test"] === "Yes" 
-                                ? "bg-green-100 text-green-800" 
+                      {pendingTasks
+                        .filter((pendingTask) => {
+                          // Filter to show only tasks with today's date
+                          const taskDate = new Date(pendingTask["Task Start Date"]);
+                          const today = new Date();
+
+                          return (
+                            taskDate.getDate() === today.getDate() &&
+                            taskDate.getMonth() === today.getMonth() &&
+                            taskDate.getFullYear() === today.getFullYear()
+                          );
+                        })
+                        .map((pendingTask, indx) => (
+                          <tr key={indx} className="hover:bg-gray-50">
+                            <td className="border px-4 py-3 font-medium text-blue-600">
+                              {pendingTask["Task No"]}
+                            </td>
+                            <td className="border px-4 py-3 text-gray-900">
+                              {new Date(pendingTask["Task Start Date"]).toLocaleDateString("en-IN", {
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                              })}
+                            </td>
+                            <td className="border px-4 py-3 text-gray-700 max-w-md">
+                              <div className="line-clamp-3 break-words">
+                                {pendingTask["Description"]}
+                              </div>
+                            </td>
+                            <td className="border px-4 py-3 text-center">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${pendingTask["Need Sound Test"] === "Yes"
+                                ? "bg-green-100 text-green-800"
                                 : "bg-gray-100 text-gray-800"
-                            }`}>
-                              {pendingTask["Need Sound Test"] === "Yes" ? "Yes" : "No"}
-                            </span>
-                          </td>
-                          <td className="border px-4 py-3 text-center">
-                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                              pendingTask["Temperature"] === "Yes" 
-                                ? "bg-blue-100 text-blue-800" 
+                                }`}>
+                                {pendingTask["Need Sound Test"] === "Yes" ? "Yes" : "No"}
+                              </span>
+                            </td>
+                            <td className="border px-4 py-3 text-center">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${pendingTask["Temperature"] === "Yes"
+                                ? "bg-blue-100 text-blue-800"
                                 : "bg-gray-100 text-gray-800"
-                            }`}>
-                              {pendingTask["Temperature"] === "Yes" ? "Yes" : "No"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                                }`}>
+                                {pendingTask["Temperature"] === "Yes" ? "Yes" : "No"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      }
                     </tbody>
                   </table>
-                  
-                  {pendingTasks.length === 0 && (
-                    <div className="text-center py-8 text-gray-500">
-                      No pending tasks found for this machine.
-                    </div>
-                  )}
+
+                  {pendingTasks.filter((pendingTask) => {
+                    const taskDate = new Date(pendingTask["Task Start Date"]);
+                    const today = new Date();
+
+                    return (
+                      taskDate.getDate() === today.getDate() &&
+                      taskDate.getMonth() === today.getMonth() &&
+                      taskDate.getFullYear() === today.getFullYear()
+                    );
+                  }).length === 0 && (
+                      <div className="text-center py-8 text-gray-500">
+                        No tasks found for today.
+                      </div>
+                    )}
                 </div>
               )}
             </div>
@@ -1066,7 +1062,28 @@ const TaskDetails = () => {
                   <table className="min-w-full border border-gray-300 text-sm">
                     <thead className="bg-gray-50 sticky top-0 z-10">
                       <tr>
-                        <th className="border px-2 py-1"></th>
+                        
+                        <th className="border px-2 py-1 text-center">
+  <input
+    type="checkbox"
+    checked={
+      allRelatedTasks
+        .filter((task) => {
+          const taskDate = new Date(task["Task Start Date"]);
+          const today = new Date();
+          return (
+            taskDate.getDate() === today.getDate() &&
+            taskDate.getMonth() === today.getMonth() &&
+            taskDate.getFullYear() === today.getFullYear()
+          );
+        })
+        .every((task) => checkedItems[task["Task No"]])
+    }
+    onChange={(e) => handleSelectAll(e.target.checked)}
+    className="h-5 w-5 text-indigo-600 rounded focus:ring-indigo-500"
+  />
+</th>
+
                         <th className="border px-2 py-1 text-blue-700">
                           Task No
                         </th>
@@ -1104,182 +1121,206 @@ const TaskDetails = () => {
                     </thead>
 
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {allRelatedTasks.map((task) => {
-                        const taskNo = task["Task No"];
-                        const isChecked = checkedItems[taskNo] || false;
-                        const taskStatus = taskStatuses[taskNo] || "";
-                        const canSubmit =
-                          isChecked &&
-                          (taskStatus === "Yes" || taskStatus === "No");
-                        const isDone = !!task["Actual Date"];
+                      {allRelatedTasks
+                        .filter((task) => {
+                          // Filter to show only tasks with today's date
+                          const taskDate = new Date(task["Task Start Date"]);
+                          const today = new Date();
 
-                        return (
-                          <tr
-                            key={taskNo}
-                            className={`${
-                              isDone
+                          return (
+                            taskDate.getDate() === today.getDate() &&
+                            taskDate.getMonth() === today.getMonth() &&
+                            taskDate.getFullYear() === today.getFullYear()
+                          );
+                        })
+                        .map((task) => {
+                          const taskNo = task["Task No"];
+                          const isChecked = checkedItems[taskNo] || false;
+                          const taskStatus = taskStatuses[taskNo] || "";
+                          const canSubmit =
+                            isChecked &&
+                            (taskStatus === "Yes" || taskStatus === "No");
+                          const isDone = !!task["Actual Date"];
+
+                          return (
+                            <tr
+                              key={taskNo}
+                              className={`${isDone
                                 ? "bg-green-50 border-green-200 text-gray-500 line-through"
                                 : "bg-white border-gray-200 text-gray-900"
-                            }`}
-                          >
-                            <td className="border px-2 py-1 text-center">
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={() => handleCheckboxChange(taskNo)}
-                                disabled={isDone}
-                                className="h-5 w-5 text-indigo-600 rounded focus:ring-indigo-500"
-                              />
-                            </td>
-                            <td className="border px-2 py-1 text-center">
-                              {taskNo}
-                            </td>
-                            <td className="border px-2 py-1 text-center">
-                              {task["Department"]}
-                            </td>
-                            <td className="border px-2 py-1 text-left max-w-xs">
-                              <div className="truncate" title={task["Description"]}>
-                                {task["Description"]}
-                              </div>
-                            </td>
+                                }`}
+                            >
+                              <td className="border px-2 py-1 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={() => handleCheckboxChange(taskNo)}
+                                  disabled={isDone}
+                                  className="h-5 w-5 text-indigo-600 rounded focus:ring-indigo-500"
+                                />
+                              </td>
+                              <td className="border px-2 py-1 text-center">
+                                {taskNo}
+                              </td>
+                              <td className="border px-2 py-1 text-center">
+                                {task["Department"]}
+                              </td>
+                              <td className="border px-2 py-1 text-left max-w-xs">
+                                <div className="truncate" title={task["Description"]}>
+                                  {task["Description"]}
+                                </div>
+                              </td>
 
-                            <td className="border px-2 py-1 text-center">
-                              <select
-                                value={taskStatus}
-                                onChange={(e) =>
-                                  handleStatusChange(taskNo, e.target.value)
-                                }
-                                disabled={!isChecked || isDone}
-                                className="border rounded px-2 py-1 w-full"
-                              >
-                                <option value="">Select</option>
-                                <option value="Yes">Yes</option>
-                                <option value="No">No</option>
-                              </select>
-                            </td>
+                              <td className="border px-2 py-1 text-center">
+                                <select
+                                  value={taskStatus}
+                                  onChange={(e) =>
+                                    handleStatusChange(taskNo, e.target.value)
+                                  }
+                                  disabled={!isChecked || isDone}
+                                  className="border rounded px-2 py-1 w-full"
+                                >
+                                  <option value="">Select</option>
+                                  <option value="Yes">Yes</option>
+                                  <option value="No">No</option>
+                                </select>
+                              </td>
 
-                            <td className="border px-2 py-1 text-center">
-                              <label
-                                className={`cursor-pointer ${
-                                  !isChecked || isDone
+                              <td className="border px-2 py-1 text-center">
+                                <label
+                                  className={`cursor-pointer ${!isChecked || isDone
                                     ? "text-gray-400"
                                     : "text-blue-600 hover:underline"
-                                } ${
-                                  task["Require Attachment"] === "Yes" &&
-                                  "text-red-600"
-                                }`}
-                              >
-                                Upload
+                                    } ${task["Require Attachment"] === "Yes" &&
+                                    "text-red-600"
+                                    }`}
+                                >
+                                  Upload
+                                  <input
+                                    type="file"
+                                    className="hidden"
+                                    disabled={!isChecked || isDone}
+                                    onChange={(e) =>
+                                      handleImageUpload(taskNo, e.target.files[0])
+                                    }
+                                  />
+                                  {imageFiles[taskNo] && (
+                                    <span className="ml-1 text-xs">
+                                      ({imageFiles[taskNo].name})
+                                    </span>
+                                  )}
+                                </label>
+                              </td>
+
+                              <td className="border px-2 py-1 text-center">
                                 <input
-                                  type="file"
-                                  className="hidden"
-                                  disabled={!isChecked || isDone}
+                                  type="text"
+                                  value={remarks[taskNo] || ""}
                                   onChange={(e) =>
-                                    handleImageUpload(taskNo, e.target.files[0])
+                                    handleRemarksChange(taskNo, e.target.value)
                                   }
+                                  disabled={!isChecked || isDone}
+                                  placeholder="Enter remarks"
+                                  className="outline-none border px-1 py-1 rounded-md w-full"
                                 />
-                                {imageFiles[taskNo] && (
-                                  <span className="ml-1 text-xs">
-                                    ({imageFiles[taskNo].name})
-                                  </span>
-                                )}
-                              </label>
-                            </td>
+                              </td>
 
-                            <td className="border px-2 py-1 text-center">
-                              <input
-                                type="text"
-                                value={remarks[taskNo] || ""}
-                                onChange={(e) =>
-                                  handleRemarksChange(taskNo, e.target.value)
-                                }
-                                disabled={!isChecked || isDone}
-                                placeholder="Enter remarks"
-                                className="outline-none border px-1 py-1 rounded-md w-full"
-                              />
-                            </td>
+                              <td className="border px-2 py-1 text-center">
+                                <select
+                                  value={soundStatuses[taskNo] || ""}
+                                  onChange={(e) =>
+                                    handleSoundStatusChange(
+                                      taskNo,
+                                      e.target.value
+                                    )
+                                  }
+                                  disabled={!isChecked || isDone}
+                                  className="border rounded px-2 py-1 w-full"
+                                >
+                                  <option value="">Select</option>
+                                  <option value="Good">Good</option>
+                                  <option value="Bad">Bad</option>
+                                  <option value="Need Repair">Need Repair</option>
+                                  <option value="Ok">Ok</option>
+                                </select>
+                              </td>
 
-                            <td className="border px-2 py-1 text-center">
-                              <select
-                                value={soundStatuses[taskNo] || ""}
-                                onChange={(e) =>
-                                  handleSoundStatusChange(
-                                    taskNo,
-                                    e.target.value
-                                  )
-                                }
-                                disabled={!isChecked || isDone}
-                                className="border rounded px-2 py-1 w-full"
-                              >
-                                <option value="">Select</option>
-                                <option value="Good">Good</option>
-                                <option value="Bad">Bad</option>
-                                <option value="Need Repair">Need Repair</option>
-                                <option value="Ok">Ok</option>
-                              </select>
-                            </td>
+                              <td className="border px-2 py-1 text-center">
+                                <input
+                                  type="number"
+                                  value={temperatures[taskNo] || ""}
+                                  onChange={(e) =>
+                                    handleTemperatureChange(
+                                      taskNo,
+                                      e.target.value
+                                    )
+                                  }
+                                  disabled={!isChecked || isDone}
+                                  placeholder="Temperature"
+                                  className="outline-none border px-1 py-1 rounded-md w-full"
+                                />
+                              </td>
 
-                            <td className="border px-2 py-1 text-center">
-                              <input
-                                type="number"
-                                value={temperatures[taskNo] || ""}
-                                onChange={(e) =>
-                                  handleTemperatureChange(
-                                    taskNo,
-                                    e.target.value
-                                  )
-                                }
-                                disabled={!isChecked || isDone}
-                                placeholder="Temperature"
-                                className="outline-none border px-1 py-1 rounded-md w-full"
-                              />
-                            </td>
+                              <td className="border px-2 py-1 text-center">
+                                <input
+                                  type="number"
+                                  value={repairCosts[taskNo] || ""}
+                                  onChange={(e) =>
+                                    handleRepairCostChange(taskNo, e.target.value)
+                                  }
+                                  disabled={!isChecked || isDone}
+                                  placeholder={
+                                    taskType === "Maintence"
+                                      ? "Maintenace Cost"
+                                      : "Repair Cost"
+                                  }
+                                  className="outline-none border px-1 py-1 rounded-md w-full"
+                                />
+                              </td>
 
-                            <td className="border px-2 py-1 text-center">
-                              <input
-                                type="number"
-                                value={repairCosts[taskNo] || ""}
-                                onChange={(e) =>
-                                  handleRepairCostChange(taskNo, e.target.value)
-                                }
-                                disabled={!isChecked || isDone}
-                                placeholder={
-                                  taskType === "Maintence"
-                                    ? "Maintenace Cost"
-                                    : "Repair Cost"
-                                }
-                                className="outline-none border px-1 py-1 rounded-md w-full"
-                              />
-                            </td>
-
-                            <td className="border px-2 py-1 text-center">
-                              <button
-                                className={`px-2 py-1 rounded ${
-                                  canSubmit &&
-                                  (task["Require Attachment"] !== "Yes" ||
-                                    imageFiles[taskNo])
+                              <td className="border px-2 py-1 text-center">
+                                <button
+                                  className={`px-2 py-1 rounded ${canSubmit &&
+                                    (task["Require Attachment"] !== "Yes" ||
+                                      imageFiles[taskNo])
                                     ? "bg-indigo-600 text-white hover:bg-indigo-700"
                                     : "bg-gray-300 text-gray-500 cursor-not-allowed"
-                                }`}
-                                disabled={
-                                  !canSubmit ||
-                                  isDone ||
-                                  submittingTasks[taskNo] ||
-                                  (task["Require Attachment"] === "Yes" &&
-                                    !imageFiles[taskNo])
-                                }
-                                onClick={() => handleSubmit(taskNo)}
-                              >
-                                {submittingTasks[taskNo]
-                                  ? "Submitting..."
-                                  : "Submit"}
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                                    }`}
+                                  disabled={
+                                    !canSubmit ||
+                                    isDone ||
+                                    submittingTasks[taskNo] ||
+                                    (task["Require Attachment"] === "Yes" &&
+                                      !imageFiles[taskNo])
+                                  }
+                                  onClick={() => handleSubmit(taskNo)}
+                                >
+                                  {submittingTasks[taskNo]
+                                    ? "Submitting..."
+                                    : "Submit"}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      }
                     </tbody>
                   </table>
+
+                  {allRelatedTasks.filter((task) => {
+                    const taskDate = new Date(task["Task Start Date"]);
+                    const today = new Date();
+
+                    return (
+                      taskDate.getDate() === today.getDate() &&
+                      taskDate.getMonth() === today.getMonth() &&
+                      taskDate.getFullYear() === today.getFullYear()
+                    );
+                  }).length === 0 && (
+                      <div className="text-center py-8 text-gray-500">
+                        No tasks found for today.
+                      </div>
+                    )}
                 </div>
               )}
             </div>
@@ -1425,10 +1466,10 @@ const TaskDetails = () => {
 
                   {completedTasks.filter((task) => task["Image Link"])
                     .length === 0 && (
-                    <div className="text-center py-8 text-gray-500">
-                      No documents attached to this task.
-                    </div>
-                  )}
+                      <div className="text-center py-8 text-gray-500">
+                        No documents attached to this task.
+                      </div>
+                    )}
                 </div>
               )}
             </div>

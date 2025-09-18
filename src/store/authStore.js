@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-const BACKEND_URL = "https://script.google.com/macros/s/AKfycbzWDU77ND7kYIIf__m_v3hlFv74-lF68mgSMjb0OadKnNU4XJFr74zAqnDQG0FARtjd/exec";
+const BACKEND_URL =
+  "https://script.google.com/macros/s/AKfycbzWDU77ND7kYIIf__m_v3hlFv74-lF68mgSMjb0OadKnNU4XJFr74zAqnDQG0FARtjd/exec";
 
 const useAuthStore = create(
   persist(
@@ -17,7 +18,7 @@ const useAuthStore = create(
           // First try JSONP (works with CORS)
           const success = await get().loginWithJsonp(username, password);
           if (success) return true;
-          
+
           // Fallback to POST if JSONP fails
           const response = await fetch(
             `${BACKEND_URL}?action=login&username=${encodeURIComponent(
@@ -66,13 +67,18 @@ const useAuthStore = create(
                   name: result.user.name || result.user.username,
                   role: result.user.role,
                   page: result.user.page,
+                  machine: result.user.machine, // ✅ Add this line
+                  department: result.user.department, // ✅ Add this line
                 },
                 isLoading: false,
               });
               resolve(true);
             } else {
               set({ isLoading: false });
-              console.error("JSONP Login failed:", result.error || "Unknown error");
+              console.error(
+                "JSONP Login failed:",
+                result.error || "Unknown error"
+              );
               resolve(false);
             }
           };
